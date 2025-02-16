@@ -1,0 +1,118 @@
+#include <Wire.h>
+#include <RTClib.h>
+#include <DHT.h>
+#include <LiquidCrystal_I2C.h>
+
+// RTC Module (DS1307)
+RTC_DS1307 rtc;
+
+// DHT Sensor
+#define DHTPIN 2        // DHT sensor data pin connected to D2
+#define DHTTYPE DHT11   // Sensor type
+DHT dht(DHTPIN, DHTTYPE);
+
+// LCD Display
+LiquidCrystal_I2C lcd(0x27, 16, 2); // I2C address (0x27 or 0x3F)
+
+// Buzzer
+#define BUZZER 3        // Buzzer connected to D3
+
+// Timing Variables
+bool showTime = true;
+unsigned long lastToggle = 0;
+const int timeDisplayDuration = 6000;  // Show Time for 6 sec
+const int tempDisplayDuration = 3000;  // Show Temp & Humidity for 3 sec
+const int buzzerInterval = 1800000;    // 30 min buzzer alert (1800000 ms)
+unsigned long lastBuzzerTime = 0;
+
+void setup() {
+    Serial.begin(9600);
+
+    // Initialize LCD
+    lcd.begin();
+    lcd.backlight();
+
+    // Initialize RTC
+    if (!rtc.begin()) {
+        Serial.println("Couldn't find RTC");
+        while (1);
+    }
+    if (!rtc.isrunning()) {
+        Serial.println("RTC is not running, setting time...");
+        rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Set RTC to compile time
+    }
+
+    // Initialize DHT sensor
+    dht.begin();
+
+    // Initialize Buzzer
+    pinMode(BUZZER, OUTPUT);
+    digitalWrite(BUZZER, LOW);
+}
+
+void loop() {
+    DateTime now = rtc.now(); // Get current time
+    float humidity = dht.readHumidity();
+    float temperature = dht.readTemperature();
+
+    // Toggle display
+    unsigned long currentMillis = millis();
+    if (showTime && currentMillis - lastToggle >= timeDisplayDuration) {
+        showTime = false;
+        lastToggle = currentMillis;
+        lcd.clear();
+    } 
+    else if (!showTime && currentMillis - lastToggle >= tempDisplayDuration) {
+        showTime = true;
+        lastToggle = currentMillis;
+        lcd.clear();
+    }
+
+    if (showTime) {
+        // Convert to 12-hour format
+        int hour12 = now.hour() % 12;
+        if (hour12 == 0) hour12 = 12;
+        String ampm = (now.hour() >= 12) ? "PM" : "AM";
+
+        // Display Time (Big Font)
+        lcd.setCursor(3, 0);
+        if (hour12 < 10) lcd.print("0");
+        lcd.print(hour12);
+        lcd.print(":");
+        if (now.minute() < 10) lcd.print("0");
+        lcd.print(now.minute());
+
+        lcd.setCursor(10, 0);
+        lcd.print(ampm);
+
+        lcd.setCursor(4, 1);
+        lcd.print("Date: ");
+        lcd.print(now.day());
+        lcd.print("/");
+        lcd.print(now.month());
+        lcd.print("/");
+        lcd.print(now.year());
+    } 
+    else {
+        // Display Temperature & Humidity
+        lcd.setCursor(0, 0);
+        lcd.print("Temp: ");
+        lcd.print(temperature, 1);
+        lcd.print("C");
+
+        lcd.setCursor(0, 1);
+        lcd.print("Humidity: ");
+        lcd.print(humidity, 1);
+        lcd.print("%");
+    }
+
+    // Buzzer every 30 minutes
+    if (currentMillis - lastBuzzerTime >= buzzerInterval) {
+        lastBuzzerTime = currentMillis;
+        digitalWrite(BUZZER, HIGH);
+        delay(500);  // Beep duration
+        digitalWrite(BUZZER, LOW);
+    }
+
+    delay(500);
+}
